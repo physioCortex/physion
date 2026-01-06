@@ -26,7 +26,8 @@ def read_table(filename):
 
 def get_face_metrics(Tseries_folder):
 
-    fn = get_files_with_extension(os.path.join(Tseries_folder, 'FaceIt'), extension='.npz')[0]
+    fn_list = get_files_with_extension(os.path.join(Tseries_folder, 'FaceIt'), extension='.npz')
+    fn = list(filter(lambda item: "faceit.npz" in item, fn_list))[0]
     faceitOutput = np.load(fn, allow_pickle=True)
 
     output = {}
@@ -144,7 +145,8 @@ def compute_position_from_binary_signals(A, B, forward='counterclockwise'):
     return np.cumsum(np.concatenate([[0], Delta_position]))
 
 def convert(Tseries_folder, day, 
-            subject, genotype, virus):
+            subject, genotype, virus, 
+            savepath):
 
     # load metadata:
     fn = get_files_with_extension(Tseries_folder, extension='.txt')[0]
@@ -157,7 +159,7 @@ def convert(Tseries_folder, day,
     time = [int(t[:2]) for t in xml['StartTime'].split(':')]
     day = [int(d) for d in day.split('_')]
 
-    nwb_filename = '%i_%.2d_%.2d-%i-%i-%i.nwb' % (*day, *time)
+    nwb_filename = '%i_%.2d_%.2d-%i-%.2d-%.2d.nwb' % (*day, *time)
 
     # --------------------------------------------------------------
     #    ---------  building the pynwb subject object   ----------
@@ -227,10 +229,10 @@ def convert(Tseries_folder, day,
                                                     description='')
     
     for key in ['cx', 'cy', 'sx', 'sy', 'blinking']:
-        print(key)
+        print(key, faceMetrics[key].shape)
         PupilProp = pynwb.TimeSeries(name=key,
                     data = np.reshape(faceMetrics[key],
-                                    (len(t_facedata),1)),
+                                      (len(t_facedata),1)),
                     unit='seconds',
                     timestamps=t_facedata)
         pupil_module.add(PupilProp)
@@ -240,6 +242,7 @@ def convert(Tseries_folder, day,
                                                          description='')
     
     for key in ['face-motion', 'grooming']:
+        print(key, faceMetrics[key].shape)
         faceMotionProp = pynwb.TimeSeries(name=key,
                     data = np.reshape(faceMetrics[key],
                                     (len(t_facedata),1)),
@@ -304,8 +307,10 @@ def convert(Tseries_folder, day,
     ####         Writing NWB file             #######
     #################################################
 
-    filename = os.path.join(os.path.dirname(Tseries_folder), 
+    """ filename = os.path.join(os.path.dirname(Tseries_folder), 
                             '..', '..',
+                            'NWBs', nwb_filename) """
+    filename = os.path.join(savepath,
                             'NWBs', nwb_filename)
     io = pynwb.NWBHDF5IO(filename,
                          mode='w', manager=manager)
@@ -320,19 +325,23 @@ if __name__=='__main__':
 
     if '.xlsx' in sys.argv[-1]:
 
-        dataset = read_table(sys.argv[-1])    
+        dataset = read_table(sys.argv[-1])
+        savepath = os.path.dirname(sys.argv[-1])
 
         for f, subject, virus, genotype in zip(\
                             dataset['filepath'],
-                            dataset['subject'],
+                            str(['subject']),
                             dataset['virus'],
                             dataset['genotype']):
 
             day, tseries = f.split('\\')[-2:]
-            tS = os.path.join(os.path.dirname(sys.argv[-1]), 
-                              'processed', day, tseries)
+            if 'spontaneous' in day :
+                day = f.split('\\')[-3]
+            tS = f #bypass process folder
+            #tS = os.path.join(os.path.dirname(sys.argv[-1]), 'processed', day, tseries) #requires process folder
 
-            convert(tS, day, subject, virus, genotype)
+            print("\n" + tS)
+            convert(tS, day, subject, virus, genotype, savepath)
 
     else:
 
