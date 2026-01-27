@@ -257,7 +257,8 @@ def reconvert_to_tiffs_from_16bit(vid_name):
             
 
 def create_compressed_folder(folder,
-                             key='log8bit'):
+                             key='log8bit',
+                             ignore_suite2p=False):
 
     pathlib.Path(folder.replace('TSeries', key)).mkdir(parents=True, exist_ok=True)
 
@@ -266,14 +267,21 @@ def create_compressed_folder(folder,
                     dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns('*.ome.tif', #'Reference*', 
                                                   'CYCLE*', '*.bin'))
+    
+    if os.path.exists(os.path.join(folder, 'suite2p')):
 
-    if os.path.isdir(\
-            os.path.join(folder.replace('TSeries', key), 'original_suite2p')):
-        shutil.rmtree(os.path.join(folder.replace('TSeries', key), 'original_suite2p'))
+        if os.path.isdir(\
+                os.path.join(folder.replace('TSeries', key), 'original_suite2p')):
+            shutil.rmtree(os.path.join(folder.replace('TSeries', key), 'original_suite2p'))
 
-    shutil.move(os.path.join(folder.replace('TSeries', key), 'suite2p'),
-                os.path.join(folder.replace('TSeries', key), 'original_suite2p'))
-
+        shutil.move(os.path.join(folder.replace('TSeries', key), 'suite2p'),
+                    os.path.join(folder.replace('TSeries', key), 'original_suite2p'))
+        
+    else :
+        if ignore_suite2p:
+            print(f"    --> WARNING: {os.path.join(folder, 'suite2p')} folder not found !")
+        else :
+            raise Exception(f" ERROR: {os.path.join(folder, 'suite2p')} folder not found !")
 
 def find_TSeries_folders(folder):
     return [f[0] for f in os.walk(folder)\
@@ -286,7 +294,8 @@ def find_compressed_folders(folder, key='log8bit'):
 
 ##################  hjk
 
-def remove_tiff_and_binary_files(TS_folder):
+def remove_tiff_and_binary_files(TS_folder,
+                                 key='log8bit'):
     """
 
     we just check that the number of frames matches
@@ -308,7 +317,7 @@ def remove_tiff_and_binary_files(TS_folder):
 
         for p in np.unique(xml[chan]['depth_index']):
 
-            vid_name = os.path.join(TS_folder, 'LOG-%s-plane%i.%s' %\
+            vid_name = os.path.join(folder.replace('TSeries', key), '%s-plane%i.%s' %\
                                     (chan.replace(' ','-'), p, Format))
 
             cap = cv.VideoCapture(vid_name)
@@ -332,7 +341,64 @@ def remove_tiff_and_binary_files(TS_folder):
                         print(f)
                         os.remove(os.path.join(TS_folder, f))
     
+def remove_TSeries_folder(TS_folder,
+                          key='log8bit'):
+    """
 
+    we just check that the number of frames matches
+    if yes:
+        --> remove TSeries folder !!
+
+    """
+
+    Format = 'wmv' if ('win32' in sys.platform) else 'mp4'
+
+    xml_file = get_files_with_extension(TS_folder, 
+                                        extension='.xml')[0]
+    xml = bruker_xml_parser(xml_file)
+
+    for chan in xml['channels']:
+    
+        print('    --> Channel: ', chan)
+        nframes = len(xml[chan]['tifFile'])
+
+        for p in np.unique(xml[chan]['depth_index']):
+
+            vid_name = os.path.join(folder.replace('TSeries', key), '%s-plane%i.%s' %\
+                                    (chan.replace(' ','-'), p, Format))
+
+            nframes_vid = count_frames_opencv(vid_name)
+
+            if ( np.abs(nframes-nframes_vid)/nframes ) > 0.001:
+                # less than 0.1% frame difference
+                print(f'Number of frames different for {chan}, not removing data folder')
+                return -1
+
+    print('    [!!] DELETING FOLDER IN 5 [!!] ')
+    print('          (stop with Ctrl+C Ctrl+X)  ')
+    print('                ', folder)
+    for i in range(5):
+        printProgressBar(i, 5)
+        time.sleep(1)
+
+    shutil.rmtree(os.path.join(TS_folder))
+
+    return 0
+
+def count_frames_opencv(video_path):
+    # Capturing the input video
+    video = cv.VideoCapture(video_path)
+
+    count = 0
+    while True:
+        ret, frame = video.read()
+        if not ret:
+            break
+        count += 1
+
+    video.release()
+
+    return count
 
 if __name__=='__main__':
 
@@ -355,6 +421,12 @@ if __name__=='__main__':
     parser.add_argument("--delete", 
                         help="remove the original files", 
                         action="store_true")
+    parser.add_argument("--ignore_suite2p", 
+                        help="ignore suite2p folder", 
+                        action="store_true")
+    parser.add_argument("--delete_folder", 
+                        help="delete TSeries folder after compression", 
+                        action="store_true")
     args = parser.parse_args()
 
     print('')
@@ -365,17 +437,30 @@ if __name__=='__main__':
 
             print(' - processing', folder, ' [...]')
 
-            create_compressed_folder(folder, 
-                                     key=args.compression)
-
-            if args.compression=='lossless':
-                convert_to_16bit_avi(folder)
-            else:
-                convert_to_log8bit_mp4(folder)
+            tiff_files = get_files_with_extension(folder, 
+                                                  extension='.tif')
             
-            if args.delete:
-                print(' - deleting tiffs and binary in ', folder, ' [...]')
-                remove_tiff_and_binary_files(folder)
+            if len(tiff_files)!=0:
+
+                create_compressed_folder(folder, 
+                                        key=args.compression, 
+                                        ignore_suite2p=args.ignore_suite2p)
+
+                if args.compression=='lossless':
+                    convert_to_16bit_avi(folder)
+                else:
+                    convert_to_log8bit_mp4(folder)
+                
+                if args.delete:
+                    print(' - deleting tiffs and binary in ', folder, ' [...]')
+                    remove_tiff_and_binary_files(folder, key=args.compression)
+                
+                if args.delete_folder:
+                    print(' - deleting TSeries folder ', folder, ' [...]')
+                    remove_TSeries_folder(folder, key=args.compression)
+            
+            else :
+                print(f'    --> WARNING: no tiffs found in {folder} ! Skipping TSeries folder' )
                 
     elif args.restore:
             
