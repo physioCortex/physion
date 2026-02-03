@@ -298,7 +298,8 @@ def compute_dFoF(data,
             
     # we update the previous quantities
     data.initialize_ROIs(\
-            valid_roiIndices = np.arange(data.original_nROIs)[valid_roiIndices])
+            valid_roiIndices = np.arange(data.original_nROIs)[valid_roiIndices],
+            valid_roiIndices_suite2p = data.valid_roiIndices_suite2p[valid_roiIndices])
 
     # we resrict the rawFluo and neuropil to valid ROIs
     data.rawFluo = data.rawFluo[data.valid_roiIndices,:]

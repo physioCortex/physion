@@ -174,7 +174,7 @@ class Data:
             self.read_and_format_ophys_data()
         else:
             for key in ['Segmentation', 'Fluorescence', 'redcell', 'plane',
-                        'valid_roiIndices', 'neuropil']:
+                        'valid_roiIndices', 'neuropil', 'valid_roiIndices_suite2p']:
                 setattr(self, key, None)
                 
         if 'Pupil' in self.nwbfile.processing:
@@ -189,7 +189,8 @@ class Data:
     #########################################################
     
     def initialize_ROIs(self, 
-                        valid_roiIndices=None):
+                        valid_roiIndices=None,
+                        valid_roiIndices_suite2p=None):
 
         """
         we read the table properties of the suite2p Segmentation
@@ -218,6 +219,11 @@ class Data:
             self.valid_roiIndices = np.arange(self.original_nROIs)
         else:
             self.valid_roiIndices = valid_roiIndices
+
+        if valid_roiIndices_suite2p is None:
+            self.valid_roiIndices_suite2p = self.Fluorescence.rois.table['suite2p_roi_ID'][()]
+        else :
+            self.valid_roiIndices_suite2p = valid_roiIndices_suite2p
 
         self.nROIs = len(self.valid_roiIndices)
         self.planeID = planeID[self.valid_roiIndices]
