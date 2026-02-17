@@ -84,7 +84,7 @@ def run_imaging_to_movie(self):
         print(f)
 
 
-def convert_to_16bit_avi(TS_folder):
+def convert_to_16bit_avi(TS_folder, prefix_tseries='TSeries'):
 
     xml_file = get_files_with_extension(TS_folder, extension='.xml')[0]
     xml = bruker_xml_parser(xml_file)
@@ -98,7 +98,7 @@ def convert_to_16bit_avi(TS_folder):
    
         print('    --> Channel: ', chan)
 
-        vid_name = os.path.join(TS_folder.replace('TSeries', 'lossless'),
+        vid_name = os.path.join(TS_folder.replace(prefix_tseries, 'lossless'),
                                 '%s.avi' % chan.replace(' ','-'))
 
         cmd  = 'ffmpeg -i %s' % os.path.join(TS_folder,\
@@ -110,9 +110,7 @@ def convert_to_16bit_avi(TS_folder):
         print(cmd)
         print()
 
-
-
-def convert_to_log8bit_mp4(TS_folder):
+def convert_to_log8bit_mp4(TS_folder, prefix_tseries='TSeries'):
 
     Format = 'wmv' if ('win32' in sys.platform) else 'mp4'
 
@@ -136,7 +134,7 @@ def convert_to_log8bit_mp4(TS_folder):
         
         for p in np.unique(xml[chan]['depth_index']):
 
-            vid_name = os.path.join(TS_folder.replace('TSeries', 'log8bit'),
+            vid_name = os.path.join(TS_folder.replace(prefix_tseries, 'log8bit'),
                                      '%s-plane%i.%s' %\
                                     (chan.replace(' ','-'), p, Format))
             out = cv.VideoWriter(vid_name,
@@ -168,7 +166,7 @@ def convert_to_log8bit_mp4(TS_folder):
             print(' [ok] "%s" succesfully created !' % vid_name)
             DICT['Frames_succesfully_in_movie-plane%i'%p]= success
 
-        np.save(os.path.join(TS_folder.replace('TSeries', 'log8bit'), 
+        np.save(os.path.join(TS_folder.replace(prefix_tseries, 'log8bit'), 
                              '%s-summary.npy'%chan.replace(' ','-')),
                 DICT)
         print(' [ok] Frames-summary.npy succesfully created !')
@@ -257,13 +255,13 @@ def reconvert_to_tiffs_from_16bit(vid_name):
             
 
 def create_compressed_folder(folder,
+                             prefix_tseries='TSeries',
                              key='log8bit',
                              ignore_suite2p=False):
 
-    pathlib.Path(folder.replace('TSeries', key)).mkdir(parents=True, exist_ok=True)
-
+    pathlib.Path(folder.replace(prefix_tseries, key)).mkdir(parents=True, exist_ok=True)
     shutil.copytree(os.path.join(folder), 
-                    folder.replace('TSeries', key),
+                    folder.replace(prefix_tseries, key),
                     dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns('*.ome.tif', #'Reference*', 
                                                   'CYCLE*', '*.bin'))
@@ -271,11 +269,11 @@ def create_compressed_folder(folder,
     if os.path.exists(os.path.join(folder, 'suite2p')):
 
         if os.path.isdir(\
-                os.path.join(folder.replace('TSeries', key), 'original_suite2p')):
-            shutil.rmtree(os.path.join(folder.replace('TSeries', key), 'original_suite2p'))
+                os.path.join(folder.replace(prefix_tseries, key), 'original_suite2p')):
+            shutil.rmtree(os.path.join(folder.replace(prefix_tseries, key), 'original_suite2p'))
 
-        shutil.move(os.path.join(folder.replace('TSeries', key), 'suite2p'),
-                    os.path.join(folder.replace('TSeries', key), 'original_suite2p'))
+        shutil.move(os.path.join(folder.replace(prefix_tseries, key), 'suite2p'),
+                    os.path.join(folder.replace(prefix_tseries, key), 'original_suite2p'))
         
     else :
         if ignore_suite2p:
@@ -283,9 +281,9 @@ def create_compressed_folder(folder,
         else :
             raise Exception(f" ERROR: {os.path.join(folder, 'suite2p')} folder not found !")
 
-def find_TSeries_folders(folder):
+def find_TSeries_folders(folder, prefix_tseries='TSeries'):
     return [f[0] for f in os.walk(folder)\
-                    if 'TSeries' in f[0].split(os.path.sep)[-1]]
+                    if prefix_tseries in f[0].split(os.path.sep)[-1]]
 
 def find_compressed_folders(folder, key='log8bit'):
     return [f[0] for f in os.walk(folder)\
@@ -295,6 +293,7 @@ def find_compressed_folders(folder, key='log8bit'):
 ##################  hjk
 
 def remove_tiff_and_binary_files(TS_folder,
+                                 prefix_tseries='TSeries',
                                  key='log8bit'):
     """
 
@@ -317,7 +316,7 @@ def remove_tiff_and_binary_files(TS_folder,
 
         for p in np.unique(xml[chan]['depth_index']):
 
-            vid_name = os.path.join(folder.replace('TSeries', key), '%s-plane%i.%s' %\
+            vid_name = os.path.join(folder.replace(prefix_tseries, key), '%s-plane%i.%s' %\
                                     (chan.replace(' ','-'), p, Format))
 
             cap = cv.VideoCapture(vid_name)
@@ -342,6 +341,7 @@ def remove_tiff_and_binary_files(TS_folder,
                         os.remove(os.path.join(TS_folder, f))
     
 def remove_TSeries_folder(TS_folder,
+                          prefix_tseries='TSeries',
                           key='log8bit'):
     """
 
@@ -364,7 +364,7 @@ def remove_TSeries_folder(TS_folder,
 
         for p in np.unique(xml[chan]['depth_index']):
 
-            vid_name = os.path.join(folder.replace('TSeries', key), '%s-plane%i.%s' %\
+            vid_name = os.path.join(folder.replace(prefix_tseries, key), '%s-plane%i.%s' %\
                                     (chan.replace(' ','-'), p, Format))
 
             nframes_vid = count_frames_opencv(vid_name)
@@ -414,6 +414,8 @@ if __name__=='__main__':
                         action="store_true")
     parser.add_argument('-c', "--compression", 
                         default='log8bit')
+    parser.add_argument("--prefix_tseries",
+                        default='TSeries')
     parser.add_argument("--lossless", 
                         action="store_true")
     parser.add_argument("--restore", 
@@ -433,7 +435,7 @@ if __name__=='__main__':
 
     if args.compress:
 
-        for folder in find_TSeries_folders(args.folder):
+        for folder in find_TSeries_folders(args.folder, args.prefix_tseries):
 
             print(' - processing', folder, ' [...]')
 
@@ -443,21 +445,22 @@ if __name__=='__main__':
             if len(tiff_files)!=0:
 
                 create_compressed_folder(folder, 
+                                        prefix_tseries=args.prefix_tseries,
                                         key=args.compression, 
                                         ignore_suite2p=args.ignore_suite2p)
 
                 if args.compression=='lossless':
-                    convert_to_16bit_avi(folder)
+                    convert_to_16bit_avi(folder, prefix_tseries=args.prefix_tseries)
                 else:
-                    convert_to_log8bit_mp4(folder)
+                    convert_to_log8bit_mp4(folder, prefix_tseries=args.prefix_tseries)
                 
                 if args.delete:
                     print(' - deleting tiffs and binary in ', folder, ' [...]')
-                    remove_tiff_and_binary_files(folder, key=args.compression)
+                    remove_tiff_and_binary_files(folder, key=args.compression, prefix_tseries=args.prefix_tseries)
                 
                 if args.delete_folder:
                     print(' - deleting TSeries folder ', folder, ' [...]')
-                    remove_TSeries_folder(folder, key=args.compression)
+                    remove_TSeries_folder(folder, key=args.compression, prefix_tseries=args.prefix_tseries)
             
             else :
                 print(f'    --> WARNING: no tiffs found in {folder} ! Skipping TSeries folder' )

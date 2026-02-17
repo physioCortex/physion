@@ -47,7 +47,7 @@ def bruker_xml_parser(filename,
 
     for channel in CHANNELS:
         data[channel] = {'relativeTime':[], 'absoluteTime':[],
-                         'depth_index':[], 'tifFile':[]}
+                         'depth_index':[], 'tifFile':[], 'index':[]}
 
     settings = root[1]
     for setting in settings:
@@ -84,6 +84,7 @@ def bruker_xml_parser(filename,
                                 data[channel]['tifFile'].append(f.attrib['filename'])
                                 for key in ['relativeTime', 'absoluteTime']:
                                     data[channel][key].append(float(x.attrib[key]))
+                                data[channel]['index'].append(int(x.attrib['index']))
                                 if len(root)>3:
                                     data[channel]['depth_index'].append(int(x.attrib['index'])-1)
                                 else:
@@ -130,6 +131,7 @@ def bruker_xml_parser(filename,
                     data[channel]['tifFile'].append(f.attrib['filename'])
                     for key in ['relativeTime', 'absoluteTime']:
                         data[channel][key].append(float(x.attrib[key]))
+                    data[channel]['index'].append(int(x.attrib['index']))
                     if len(root)>3:
                         data[channel]['depth_index'].append(int(x.attrib['index'])-1)
                     else:
@@ -152,6 +154,7 @@ def bruker_xml_parser(filename,
             data['Nchannels'] += 1
         for key in ['relativeTime', 'absoluteTime']:
             data[channel][key] = np.array(data[channel][key], dtype=np.float64)
+        data[channel]['index'].append(int(x.attrib['index']))
         for key in ['tifFile']:
             data[channel][key] = np.array(data[channel][key], dtype=str)
 
