@@ -11,7 +11,7 @@
     "RigCamera-1cm-in-pix":33, "TO BE DETERMINED !!":"",
     "Height-of-Microscope-Camera-Image-in-mm":10000.0, "TO BE DETERMINED !!":"",
     "rotating-disk":{"radius-position-on-disk-cm":5.5,
-                     "roto-encoder-value-per-rotation": -12563.0,
+                     "roto-encoder-value-per-rotation": -4026.6,
                      "cycles-per-revolution": 1000},
     "root_datafolder":"DATA",
     "subjects_folder":"Adrianna",
