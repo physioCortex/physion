@@ -22,7 +22,10 @@ def read_table(filename):
     dataset = pd.read_excel(filename,
                             sheet_name='Recordings')
     
-    return dataset
+    subjects = pd.read_excel(filename,
+                            sheet_name='Subjects', index_col=0)
+    
+    return dataset, subjects
 
 def get_face_metrics(Tseries_folder):
 
@@ -144,14 +147,19 @@ def compute_position_from_binary_signals(A, B, forward='counterclockwise'):
 
     return np.cumsum(np.concatenate([[0], Delta_position]))
 
-def convert(Tseries_folder, day, 
-            subject, genotype, virus, 
+def convert(Tseries_folder, day, subject,
+            subject_info, genotype, virus, 
             savepath):
 
     # load metadata:
-    fn = get_files_with_extension(Tseries_folder, extension='.txt')[0]
-    with open(fn, 'r') as f:
-        metadata = json.load(f)
+    fn = get_files_with_extension(Tseries_folder, extension='.txt')
+    if len(fn) != 0:
+        with open(fn, 'r') as f:
+            metadata = json.load(f)
+    else:
+        metadata = {}
+
+    metadata.update({'protocol': 'None'})
 
     # load Prairie file
     fn = get_files_with_extension(Tseries_folder, extension='.xml')[0]
@@ -161,23 +169,31 @@ def convert(Tseries_folder, day,
 
     nwb_filename = '%i_%.2d_%.2d-%i-%.2d-%.2d.nwb' % (*day, *time)
 
+    start_time = datetime.datetime(day[0], day[1], day[2], 
+                                   time[0], time[1], time[2], 
+                                   tzinfo=tzlocal())
+
     # --------------------------------------------------------------
     #    ---------  building the pynwb subject object   ----------
     # --------------------------------------------------------------
 
-    subject = pynwb.file.Subject(description=subject,
-                                    age='P90',
-                                    subject_id=metadata['Mouse_Code'],
-                                    sex=metadata['Sex'],
-                                    genotype=genotype,
-                                    species='mus musculus',
-                                    strain='C57BL6')
-                                 
+    date_of_birth_list = [int(d) for d in subject_info['D. naissance'].split('_')]
+    date_of_birth = datetime.datetime(date_of_birth_list[0], date_of_birth_list[1], date_of_birth_list[2], tzinfo=tzlocal())
 
-    start_time = datetime.datetime(day[0], day[1], day[2], 
-                                   time[0], time[1], time[2], 
-                                   tzinfo=tzlocal())
-    # -------------    
+    subject = pynwb.file.Subject(description=f"Mark: {subject_info['Marque']}, " \
+                                 + f"Line: {subject_info['Lignée']} ({subject_info['Acronyme lignée']}), " \
+                                 + f"Surgery 1: {subject_info['Chirurgie 1']} on {subject_info['D. chirurgie 1']}, " \
+                                 + f"Surgery 2: {subject_info['Chirurgie 2']} on {subject_info['D. chirurgie 2']}",
+                                    age= f"P{(start_time.date() - date_of_birth.date()).days}D",
+                                    subject_id=subject,
+                                    sex=subject_info['Sexe'],
+                                    genotype=genotype,
+                                    date_of_birth=date_of_birth,
+                                    species='mus musculus',
+                                    strain=subject_info['Souche'])
+    
+    #raise ValueError('STOP - update the subject description with the correct metadata fields from the excel file (see code)')
+    # --------------------------------------------------------------
     #    ---------  building the pynwb NWBfile object   ----------
     # --------------------------------------------------------------
     nwbfile = pynwb.NWBFile(\
@@ -229,7 +245,6 @@ def convert(Tseries_folder, day,
                                                     description='')
     
     for key in ['cx', 'cy', 'sx', 'sy', 'blinking']:
-        print(key, faceMetrics[key].shape)
         PupilProp = pynwb.TimeSeries(name=key,
                     data = np.reshape(faceMetrics[key],
                                       (len(t_facedata),1)),
@@ -242,7 +257,6 @@ def convert(Tseries_folder, day,
                                                          description='')
     
     for key in ['face-motion', 'grooming']:
-        print(key, faceMetrics[key].shape)
         faceMotionProp = pynwb.TimeSeries(name=key,
                     data = np.reshape(faceMetrics[key],
                                     (len(t_facedata),1)),
@@ -325,12 +339,12 @@ if __name__=='__main__':
 
     if '.xlsx' in sys.argv[-1]:
 
-        dataset = read_table(sys.argv[-1])
+        dataset, subjects = read_table(sys.argv[-1])
         savepath = os.path.dirname(sys.argv[-1])
 
         for f, subject, virus, genotype in zip(\
                             dataset['filepath'],
-                            str(['subject']),
+                            dataset['subject'],
                             dataset['virus'],
                             dataset['genotype']):
 
@@ -340,8 +354,10 @@ if __name__=='__main__':
             tS = f #bypass process folder
             #tS = os.path.join(os.path.dirname(sys.argv[-1]), 'processed', day, tseries) #requires process folder
 
+            subject_info = subjects.loc[subject].to_dict()
+
             print("\n" + tS)
-            convert(tS, day, subject, virus, genotype, savepath)
+            convert(tS, day, subject, subject_info, virus, genotype, savepath)
 
     else:
 

@@ -437,7 +437,7 @@ def reliability(ep,
 
         for key in summaries[0]:
 
-            if key in ['value', 'std-value', 'ntrials', 'pval', 'significant']:
+            if key in ['value', 'std-value', 'ntrials', 'pval', 'significant', 'r']:
                 summary[key] = np.array([s[key] for s in summaries])
             else:
                 summary[key] = summaries[0][key]
