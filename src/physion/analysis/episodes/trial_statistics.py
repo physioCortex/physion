@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pylab as plt
 from scipy.stats import pearsonr, sem
 import random
+from sklearn import metrics
 
 # custom modules
 import physion.utils.plot_tools as pt
@@ -445,7 +446,152 @@ def reliability(ep,
 
         return summary
 
+def find_bounds(index:int, bool_array:list):
+    """
+    Find the 'True' values interval boundaries surrounding the given index value.
+    
+    :param int index: Index to be considered.
+    :param list bool_array: List of bool.
+    
+    :return start_idx (int): Starting index of the interval.
+    :return end_idx (int): Ending index of the interval.
+    """
+    n = len(bool_array)
+    
+    i = index - 1
+    while i >= 0 and bool_array[i] == True :
+        i -= 1
+    start_idx = i + 1
+
+    i = index + 1
+    while i < n and bool_array[i] == True :
+        i += 1
+    end_idx = i - 1
+
+    return start_idx, end_idx
+    
+def visualpipe_evoked_responses(ep,
+                episode_cond=None,
+                response_args={},
+                repetition_keys=['repeat'],
+                nMin_episodes=7,
+                sign='positive',
+                auc_thr=5.,
+                dt_response_min=0.2,
+                response_significance_threshold=0.05,
+                multiple_comparison_correction=True,
+                stat_test_props=dict(seed=1, n_samples=500),
+                loop_over_cells=False,
+                verbose=True):
+    
+    if episode_cond is None:
+        episode_cond = ep.find_episode_cond() # all true by default
+
+    quantity = response_args['quantity']
+    nb_frames_min = dt_response_min * ep.dt_sampling
+    baselineCond = (ep.t<0)
+    
+    if not loop_over_cells:
+
+        avg_response = getattr(ep, quantity).mean(axis=(0, 1))
+        zscored_avg_response = ( (avg_response.T - avg_response[baselineCond].mean().T) / avg_response[baselineCond].std()).T
+
+        max_val, min_val = np.max(zscored_avg_response[~baselineCond]), np.min(zscored_avg_response[~baselineCond])
+        if max_val > 1 and max_val > np.abs(min_val):
+            sign_roi = 'positive'
+            start_idx, end_idx = find_bounds(np.argmax(zscored_avg_response[~baselineCond]), zscored_avg_response[~baselineCond] >= 0)
+        elif min_val < -1 :
+            sign_roi = 'negative'
+            start_idx, end_idx = find_bounds(np.argmin(zscored_avg_response[~baselineCond]), zscored_avg_response[~baselineCond] <= 0)
+        else :
+            sign_roi = "non-responsive"
+            start_idx, end_idx = 0, 0
+        
+        summary = run_analysis_splitting_by_stim_params(ep, 
+                                            run_reliability_test,
+                                            response_args,  
+                                            episode_cond=episode_cond,
+                                            stat_test_props=stat_test_props,
+                                            repetition_keys=repetition_keys,
+                                            multiple_comparison_correction=\
+                                                multiple_comparison_correction,
+                                            response_significance_threshold=\
+                                                response_significance_threshold,
+                                            nMin_episodes=nMin_episodes,
+                                            verbose=verbose)
+    
+        #time duration constraint & AUC constraint
+        auc = metrics.auc(ep.t[~baselineCond][start_idx:end_idx+1], zscored_avg_response[~baselineCond][start_idx:end_idx+1])
+        if end_idx - start_idx + 1 < nb_frames_min or np.abs(auc) < auc_thr :
+            summary['significant'] = False
+
+        elif (sign!='both' and sign_roi != sign) or (sign=='both' and sign_roi == "non-responsive"):
+            summary['significant'] = False
+
+    else:
+
+        summaries = []
+
+        averaged_response = getattr(ep, quantity).mean(axis=0)
+        zscored_avg_response = ( (averaged_response.T - averaged_response[:, baselineCond].mean(axis=1).T) / averaged_response[:, baselineCond].std(axis=1)).T
+
+        for cell in np.arange(getattr(ep, quantity).shape[1]):
+
+            max_val, min_val = np.max(zscored_avg_response[cell, ~baselineCond]), np.min(zscored_avg_response[cell, ~baselineCond])
+
+            if max_val > 1 and max_val > np.abs(min_val):
+                sign_roi = 'positive'
+                start_idx, end_idx = find_bounds(np.argmax(zscored_avg_response[cell, ~baselineCond]), zscored_avg_response[cell, ~baselineCond] >= 0)
+            elif min_val < -1 :
+                sign_roi = 'negative'
+                start_idx, end_idx = find_bounds(np.argmin(zscored_avg_response[cell, ~baselineCond]), zscored_avg_response[cell, ~baselineCond] <= 0)
+            else :
+                sign_roi = "non-responsive"
+                start_idx, end_idx = 0, 0
+
+            if (sign!='both' and sign_roi != sign) or (sign=='both' and sign_roi == "non-responsive"):
+                summaries.append({'r': np.nan, 'significant': False, 'pval': np.nan})
+                continue
+            
+            #time duration constraint & AUC constraint
+            auc = metrics.auc(ep.t[~baselineCond][start_idx:end_idx+1], zscored_avg_response[cell, ~baselineCond][start_idx:end_idx+1])
+            if end_idx - start_idx + 1 < nb_frames_min or np.abs(auc) < auc_thr :
+                summaries.append({'r': np.nan, 'significant': False, 'pval': np.nan})
+                continue
+
+            response_args = {'quantity':quantity,
+                             'roiIndex':cell}
+            
+            summaries.append(\
+                run_analysis_splitting_by_stim_params(ep, 
+                                            run_reliability_test,
+                                            response_args,  
+                                            episode_cond=episode_cond,
+                                            stat_test_props=stat_test_props,
+                                            repetition_keys=repetition_keys,
+                                            multiple_comparison_correction=\
+                                                multiple_comparison_correction,
+                                            response_significance_threshold=\
+                                                response_significance_threshold,
+                                            nMin_episodes=nMin_episodes,
+                                            verbose=verbose)
+            )
+
+        # brings this back to arrays of shape (ROIs, ...)
+        summary = {}
+
+        for key in summaries[0]:
+
+            if key in ['value', 'std-value', 'ntrials', 'pval', 'significant', 'r']:
+                summary[key] = np.array([s[key] for s in summaries])
+            else:
+                summary[key] = summaries[0][key]
+
+    return summary
+
+
 from .build import EpisodeData
 EpisodeData.stat_test_for_evoked_responses = stat_test_for_evoked_responses
 EpisodeData.pre_post_statistics = pre_post_statistics
 EpisodeData.reliability = reliability
+EpisodeData.visualpipe_evoked_responses = visualpipe_evoked_responses
