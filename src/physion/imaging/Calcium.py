@@ -158,27 +158,35 @@ def compute_F0(data, F,
 def compute_neuropil_facor(F, Fneu, valid_roiIndices):
 
     slopes_list = []
-    per = np.arange(5, 101, 5)
+    perc = np.arange(5, 101, 5)
 
     F = F[valid_roiIndices,:]
     Fneu = Fneu[valid_roiIndices,:]
 
     for k in range(len(F)): #loop on each neuron
+
         b = 0
-        All_F, percentile_Fneu = [], []
-        for q in per:
+        x, y = [], []
+
+        for q in perc:
+
             current_percentile = np.percentile(Fneu[k], q)
             previous_percentile = np.percentile(Fneu[k], b)
+
             index_percentile_q = np.where((previous_percentile <= Fneu[k]) & (Fneu[k] < current_percentile))
+
             F_percentile_q = F[k][index_percentile_q]
             perc_F_q = np.percentile(F_percentile_q, 5)
-            percentile_Fneu.append(current_percentile)
-            All_F.append(perc_F_q)
+            y.append(perc_F_q)
+
+            median_Fneu_q = np.median(Fneu[k][index_percentile_q])
+            x.append(median_Fneu_q)
+
             b = q
 
         #fitting a linear regression model
-        x = np.array(percentile_Fneu).reshape(-1, 1)
-        y = np.array(All_F)
+        x = np.array(x).reshape(-1, 1)
+        y = np.array(y)
         model = LinearRegression()
         model.fit(x, y)
         slopes_list.append(model.coef_[0])
@@ -250,7 +258,7 @@ def compute_dFoF(data,
             if np.sum(~valid_roiIndices) - nb_unvalid_rois > 0:
                 print('\n  ** %i ROIs were discarded with the strictly positive neuropil correction factor criterion (%.1f%%) ** \n'\
                     % (np.sum(~valid_roiIndices) - nb_unvalid_rois,
-                        100*(np.sum(~valid_roiIndices - nb_unvalid_rois) - nb_unvalid_rois)/data.rawFluo.shape[0]))
+                        100*(np.sum(~valid_roiIndices) - nb_unvalid_rois)/data.rawFluo.shape[0]))
             else:
                 print('\n  ** all ROIs passed the strictly positive neuropil correction factor criterion ** \n')
                 
