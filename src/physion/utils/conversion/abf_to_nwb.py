@@ -147,16 +147,19 @@ def compute_position_from_binary_signals(A, B, forward='counterclockwise'):
 
     return np.cumsum(np.concatenate([[0], Delta_position]))
 
-def convert(Tseries_folder, day, subject,
+def convert(session_folder, Tseries_folder, day, subject,
             subject_info, genotype, virus, 
             savepath):
 
     # load metadata:
-    fn = get_files_with_extension(Tseries_folder, extension='.txt')
-    if len(fn) != 0:
-        with open(fn, 'r') as f:
+    fn = get_files_with_extension(session_folder, extension='.txt')
+    i = 0
+    while i < len(fn) and 'metadata' not in fn[i]: i += 1
+    if i < len(fn) and 'metadata' in fn[i]:
+        with open(fn[i], 'r') as f:
             metadata = json.load(f)
     else:
+        print('No metadata file found.')
         metadata = {}
 
     metadata.update({'protocol': 'None'})
@@ -197,7 +200,7 @@ def convert(Tseries_folder, day, subject,
     #    ---------  building the pynwb NWBfile object   ----------
     # --------------------------------------------------------------
     nwbfile = pynwb.NWBFile(\
-                identifier=Tseries_folder,
+                identifier=session_folder,
                 session_description=str(metadata),
                 experiment_description='imaging during spontaneous behavior',
                 experimenter='Adrianna Nozownik',
@@ -219,7 +222,7 @@ def convert(Tseries_folder, day, subject,
     # ####         Locomotion                   #######
     # #################################################
 
-    t_speed, speed, dt_start = get_running_speed(Tseries_folder)
+    t_speed, speed, dt_start = get_running_speed(session_folder)
 
     running = pynwb.TimeSeries(name='Running-Speed',
                                data = np.reshape(speed, (len(speed),1)),
@@ -237,7 +240,7 @@ def convert(Tseries_folder, day, subject,
 
     t_imaging = xml['Green']['relativeTime'] + dt_start
 
-    faceMetrics = get_face_metrics(Tseries_folder)
+    faceMetrics = get_face_metrics(session_folder)
     t_facedata = np.linspace(t_imaging[0], t_imaging[-1], len(faceMetrics['cx']))
 
     # Pupil
@@ -315,7 +318,7 @@ def convert(Tseries_folder, day, subject,
                                           imaging_plane=imaging_plane,
                                           image_series=image_series) 
     else:
-        print('\n [!!]  no "suite2p" folder found in "%s"  [!!] ' % Tseries_folder)
+        print('\n [!!]  no "suite2p" folder found in "%s"  [!!] ' % session_folder)
 
     #################################################
     ####         Writing NWB file             #######
@@ -351,13 +354,16 @@ if __name__=='__main__':
             day, tseries = f.split('\\')[-2:]
             if 'spontaneous' in day :
                 day = f.split('\\')[-3]
-            tS = f #bypass process folder
-            #tS = os.path.join(os.path.dirname(sys.argv[-1]), 'processed', day, tseries) #requires process folder
+            
+            sS = f #bypass process folder
+            #sS = os.path.join(os.path.dirname(sys.argv[-1]), 'processed', day, tseries) #requires process folder
+            fn = get_files_with_extension(sS, extension='.xml', recursive=True)[0]
+            tS = os.path.dirname(fn) 
 
             subject_info = subjects.loc[subject].to_dict()
 
             print("\n" + tS)
-            convert(tS, day, subject, subject_info, virus, genotype, savepath)
+            convert(sS, tS, day, str(subject), subject_info, virus, genotype, savepath)
 
     else:
 
