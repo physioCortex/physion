@@ -95,6 +95,18 @@ SCREENS = {
         'gamma_correction':{'k':1.03,
                             'gamma':1.77},
     },
+    'A1-Small-Screen':{
+        'nScreens':1,
+        'name':'A1-Small-Screen',
+        'screen_id':1,
+        'resolution':[512, 512],
+        'width':5.3, # in cm
+        'height':5.3, # in cm
+        'distance_from_eye':5.0, # in cm
+        'fullscreen':True,
+        'gamma_correction':{'k':1.,
+                            'gamma':1.},
+    },
 }
 
 if __name__=='__main__':
