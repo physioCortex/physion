@@ -363,7 +363,7 @@ if __name__=='__main__':
             subject_info = subjects.loc[subject].to_dict()
 
             print("\n" + tS)
-            convert(sS, tS, day, str(subject), subject_info, virus, genotype, savepath)
+            convert(sS, tS, day, str(subject), subject_info, genotype, virus, savepath)
 
     else:
 
