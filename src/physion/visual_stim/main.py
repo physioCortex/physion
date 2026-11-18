@@ -315,7 +315,7 @@ class visual_stim:
 
                 self.experiment['index'].append(i) # shuffled
                 self.experiment['bg-color'].append(self.blank_color)
-                self.experiment['repeat'].append(repeats[i])
+                self.experiment['repeat'].append(r) # shuffled, aligned with index
 
                 if n==0:
                     self.experiment['time_start'].append(\
