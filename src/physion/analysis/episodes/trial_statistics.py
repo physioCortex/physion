@@ -212,7 +212,6 @@ def run_analysis_splitting_by_stim_params(ep,
                     print('        ---> NOT INCLUDED int summary statistics')
 
     else:
-
         if np.sum(episode_cond)>=nMin_episodes:
 
             # perform stat analysis, from "stat_func" argument
@@ -222,6 +221,10 @@ def run_analysis_splitting_by_stim_params(ep,
                 response_significance_threshold=response_significance_threshold,
                 stat_test_props=stat_test_props,
                 verbose=verbose)
+
+        else :
+            for key in full_summary:
+                full_summary[key] = np.nan
 
     for key in full_summary:
         full_summary[key] = np.array(full_summary[key])
@@ -477,18 +480,33 @@ def visualpipe_evoked_responses(ep,
                 nMin_episodes=7,
                 sign='positive',
                 auc_thr=5.,
-                dt_response_min=0.2,
+                dt_response_min=0.2, # in s
                 response_significance_threshold=0.05,
                 multiple_comparison_correction=True,
                 stat_test_props=dict(seed=1, n_samples=500),
                 loop_over_cells=False,
                 verbose=True):
-    
+    """
+    Responsiveness test adapted from visualpipe.
+
+    A response is significant if it passes the trial-to-trial reliability test
+    (`run_reliability_test`) AND, on the z-scored trial-averaged response
+    (z-score computed on the baseline, t<0):
+        - its peak has the requested sign ('positive', 'negative' or 'both'),
+          with |z| > 1,
+        - the interval around the peak with the same sign lasts at least
+          `dt_response_min` (in s),
+        - the area under the z-scored curve over that interval is above `auc_thr`.
+
+    loop_over_cells=False -> one test on the response averaged over all ROIs
+    loop_over_cells=True  -> one test per ROI, arrays of shape (ROIs, ...)
+    """
+
     if episode_cond is None:
         episode_cond = ep.find_episode_cond() # all true by default
 
     quantity = response_args['quantity']
-    nb_frames_min = dt_response_min * ep.dt_sampling
+    nb_frames_min = dt_response_min / (ep.dt_sampling*1e-3) # dt_sampling in ms
     baselineCond = (ep.t<0)
     
     if not loop_over_cells:
@@ -520,12 +538,15 @@ def visualpipe_evoked_responses(ep,
                                             nMin_episodes=nMin_episodes,
                                             verbose=verbose)
     
-        #time duration constraint & AUC constraint
-        auc = metrics.auc(ep.t[~baselineCond][start_idx:end_idx+1], zscored_avg_response[~baselineCond][start_idx:end_idx+1])
-        if end_idx - start_idx + 1 < nb_frames_min or np.abs(auc) < auc_thr :
-            summary['significant'] = False
+        # duration constraint first (the AUC needs at least 2 points), then AUC & sign constraints
+        if end_idx - start_idx + 1 >= nb_frames_min:
+            auc = metrics.auc(ep.t[~baselineCond][start_idx:end_idx+1], zscored_avg_response[~baselineCond][start_idx:end_idx+1])
+            if np.abs(auc) < auc_thr :
+                summary['significant'] = False
 
-        elif (sign!='both' and sign_roi != sign) or (sign=='both' and sign_roi == "non-responsive"):
+            elif (sign!='both' and sign_roi != sign) or (sign=='both' and sign_roi == "non-responsive"):
+                summary['significant'] = False
+        else :
             summary['significant'] = False
 
     else:
@@ -550,13 +571,17 @@ def visualpipe_evoked_responses(ep,
                 start_idx, end_idx = 0, 0
 
             if (sign!='both' and sign_roi != sign) or (sign=='both' and sign_roi == "non-responsive"):
-                summaries.append({'r': np.nan, 'significant': False, 'pval': np.nan})
+                summaries.append(None) # discarded ROI, filled below
                 continue
             
-            #time duration constraint & AUC constraint
-            auc = metrics.auc(ep.t[~baselineCond][start_idx:end_idx+1], zscored_avg_response[cell, ~baselineCond][start_idx:end_idx+1])
-            if end_idx - start_idx + 1 < nb_frames_min or np.abs(auc) < auc_thr :
-                summaries.append({'r': np.nan, 'significant': False, 'pval': np.nan})
+            # duration constraint first (the AUC needs at least 2 points), then AUC constraint
+            if end_idx - start_idx + 1 >= nb_frames_min:
+                auc = metrics.auc(ep.t[~baselineCond][start_idx:end_idx+1], zscored_avg_response[cell, ~baselineCond][start_idx:end_idx+1])
+                if np.abs(auc) < auc_thr :
+                    summaries.append(None) # discarded ROI, filled below
+                    continue
+            else :
+                summaries.append(None) # discarded ROI, filled below
                 continue
 
             response_args = {'quantity':quantity,
@@ -578,14 +603,18 @@ def visualpipe_evoked_responses(ep,
             )
 
         # brings this back to arrays of shape (ROIs, ...)
+        #   discarded ROIs get NaN / False values with the same shape as
+        #   the tested ROIs (one value per stimulus condition if any)
+        tested = [s for s in summaries if s is not None]
+        shape = np.shape(tested[0]['r']) if len(tested)>0 else ()
+        discarded = {'r': np.full(shape, np.nan),
+                     'pval': np.full(shape, np.nan),
+                     'significant': np.zeros(shape, dtype=bool)}
+
         summary = {}
-
-        for key in summaries[0]:
-
-            if key in ['value', 'std-value', 'ntrials', 'pval', 'significant', 'r']:
-                summary[key] = np.array([s[key] for s in summaries])
-            else:
-                summary[key] = summaries[0][key]
+        for key in ['pval', 'significant', 'r']:
+            summary[key] = np.array([discarded[key] if s is None else s[key]
+                                     for s in summaries])
 
     return summary
 
