@@ -701,10 +701,10 @@ def scan_folder_for_NWBfiles(folder,
                                       ('right-' not in f) and\
                                       ('up-' not in f))]
 
-    DATES = np.array([f.split(os.path.sep)[-1].split('-')[0] for f in FILES0])
-    FILES, SUBJECTS, PROTOCOLS, PROTOCOL_IDS, AGES = [], [], [], [], []
+    dates = np.array([f.split(os.path.sep)[-1].split('-')[0] for f in FILES0])
+    FILES, DATES, SUBJECTS, PROTOCOLS, PROTOCOL_IDS, AGES, VIRUS = [], [], [], [], [], [], []
 
-    for f in FILES0[:Nmax]:
+    for i, f in enumerate(FILES0[:Nmax]):
 
         try:
             data = Data(f, metadata_only=True, verbose=False)
@@ -726,6 +726,8 @@ def scan_folder_for_NWBfiles(folder,
                     PROTOCOL_IDS.append(iProtocols)
                     SUBJECTS.append(data.nwbfile.subject.subject_id)
                     AGES.append(data.age)
+                    VIRUS.append(data.nwbfile.virus)
+                    DATES.append(dates[i])
 
             else:
 
@@ -735,6 +737,8 @@ def scan_folder_for_NWBfiles(folder,
                 PROTOCOL_IDS.append(range(len(data.protocols)))
                 SUBJECTS.append(data.nwbfile.subject.subject_id)
                 AGES.append(data.age)
+                VIRUS.append(data.nwbfile.virus)
+                DATES.append(dates[i])
 
         except BaseException as be:
             SUBJECTS.append('N/A')
@@ -756,6 +760,8 @@ def scan_folder_for_NWBfiles(folder,
         isorted = np.argsort(DATES)
     elif sorted_by=='age':
         isorted = np.argsort(AGES)
+    elif sorted_by=='virus':
+        isorted = np.argsort(VIRUS)
     else:
         print(' "%s" no recognized , --> sorted by filename by default ! ' % sorted_by)
         isorted = np.argsort(FILES)
@@ -765,7 +771,8 @@ def scan_folder_for_NWBfiles(folder,
             'subjects':np.array(SUBJECTS)[isorted],
             'ages':np.array(AGES)[isorted],
             'protocol_ids':[PROTOCOL_IDS[i] for i in isorted],
-            'protocols':[PROTOCOLS[i] for i in isorted]}
+            'protocols':[PROTOCOLS[i] for i in isorted],
+            'virus':np.array(VIRUS)[isorted]}
 
 
 if __name__=='__main__':

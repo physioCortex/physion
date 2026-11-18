@@ -7,15 +7,23 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))
 
 try:
     from skimage import color, io
+    from skimage.util import img_as_float
 except ModuleNotFoundError:
     print('"skimage" module not found')
 
 
 def load(image_path):
 
-    img = color.rgb2gray(io.imread(image_path))
+    img = io.imread(image_path)
+    if img.ndim == 3 and img.shape[-1] == 4:
+        img = color.rgba2rgb(img) # drop alpha channel (e.g. PNG)
+    if img.ndim == 3:
+        img_bw = color.rgb2gray(img) # float in [0,1]
+    else:
+        img_bw = img_as_float(img) # grayscale: rescale uint8/uint16 to [0,1]
+    print('Loaded image: ', image_path, ' with shape: ', img_bw.shape)
     
-    return np.rot90(np.array(img).T, k=1) # needs transpose + rotation
+    return np.rot90(np.array(img_bw).T, k=1) # needs transpose + rotation
     
 def img_after_hist_normalization(img, verbose=False):
     """
@@ -25,6 +33,10 @@ def img_after_hist_normalization(img, verbose=False):
     if verbose:
         print('Performing histogram normalization [...]')
 
+    # expects img in [0,1] (negative values would silently wrap around in norm_cs)
+    if img.min() < 0 or img.max() > 1:
+        raise ValueError('img_after_hist_normalization expects values in [0,1], '
+                         'got [%.3f, %.3f]' % (img.min(), img.max()))
     flat = np.array(1000*img.flatten(), dtype=int)
 
     cumsum = np.cumsum(np.histogram(flat, bins=np.arange(1001))[0])

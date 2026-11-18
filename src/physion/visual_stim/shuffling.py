@@ -44,7 +44,16 @@ def shuffle_single_protocol(indices, repeats, protocol,
 
             full_indices[2*i] = full_indices_even[i]
             full_indices[2*i+1] = full_indices_odd[i]
-         
+
+    elif (protocol['shuffling']=='blocks'):
+
+        # all repeats of a given stimulus are presented consecutively,
+        #    the order of the blocks (i.e. of the stimuli) is random
+        block_order = np.unique(indices)
+        np.random.shuffle(block_order)
+        full_indices = np.concatenate(\
+                [full_indices[indices==b] for b in block_order])
+
     else:
         print()
         print("""

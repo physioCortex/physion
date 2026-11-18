@@ -155,42 +155,55 @@ def compute_F0(data, F,
         print('\n --- method not recognized --- \n ')
 
 
-def compute_neuropil_facor(F, Fneu):
+def compute_neuropil_facor(F, Fneu, valid_roiIndices):
 
     slopes_list = []
-    per = np.arange(5, 101, 5)
+    perc = np.arange(5, 101, 5)
+
+    F = F[valid_roiIndices,:]
+    Fneu = Fneu[valid_roiIndices,:]
 
     for k in range(len(F)): #loop on each neuron
+
         b = 0
-        All_F, percentile_Fneu = [], []
-        for q in per:
+        x, y = [], []
+
+        for q in perc:
+
             current_percentile = np.percentile(Fneu[k], q)
             previous_percentile = np.percentile(Fneu[k], b)
+
             index_percentile_q = np.where((previous_percentile <= Fneu[k]) & (Fneu[k] < current_percentile))
+
             F_percentile_q = F[k][index_percentile_q]
             perc_F_q = np.percentile(F_percentile_q, 5)
-            percentile_Fneu.append(current_percentile)
-            All_F.append(perc_F_q)
+            y.append(perc_F_q)
+
+            median_Fneu_q = np.median(Fneu[k][index_percentile_q])
+            x.append(median_Fneu_q)
+
             b = q
 
         #fitting a linear regression model
-        x = np.array(percentile_Fneu).reshape(-1, 1)
-        y = np.array(All_F)
+        x = np.array(x).reshape(-1, 1)
+        y = np.array(y)
         model = LinearRegression()
         model.fit(x, y)
         slopes_list.append(model.coef_[0])
     
-    valid_ROIs, alphas = [],[]
-    for q in range(len(slopes_list)):
-        if slopes_list[q] > 0:
-            valid_ROIs.append(True)
-            alphas.append(slopes_list[q])
-        else :
-            valid_ROIs.append(False)
+    q = 0
+    alphas = []
+    for i, el in enumerate(valid_roiIndices):
+        if el :
+            if slopes_list[q] > 0 :
+                alphas.append(slopes_list[q])
+            else :
+                valid_roiIndices[i] = False
+            q+=1
     
     alpha = np.mean(alphas)
 
-    return alpha, np.array(valid_ROIs)
+    return alpha, np.array(valid_roiIndices)
 
 def compute_dFoF(data,  
                  roi_to_neuropil_fluo_inclusion_factor=ROI_TO_NEUROPIL_INCLUSION_FACTOR,
@@ -224,16 +237,28 @@ def compute_dFoF(data,
         tick = time.time()
         print('\ncalculating dF/F with method "%s" [...]' % method_for_F0)
     
+    # Step 1) -> Identify rois above Inclusion Factor
+    if roi_to_neuropil_fluo_inclusion_factor_metric == 'mean':
+        valid_roiIndices = ((np.mean(data.rawFluo, axis=1)>\
+                roi_to_neuropil_fluo_inclusion_factor*np.mean(data.neuropil, axis=1)))
+    elif roi_to_neuropil_fluo_inclusion_factor_metric == 'std' :
+        neuropil_filtered = gaussian_filter1d(data.neuropil, 10)
+        rawFluo_filtered = gaussian_filter1d(data.rawFluo, 10)
+        valid_roiIndices = ((np.std(rawFluo_filtered, axis=1)>\
+                roi_to_neuropil_fluo_inclusion_factor*np.std(neuropil_filtered, axis=1)))
+    else:
+        raise ValueError('roi_to_neuropil_fluo_inclusion_factor must be either "mean" or "std"')
 
-    # Step 0) -> compute neuropil correction factor if needed
+    # Step 2) -> compute neuropil correction factor if needed
     if with_computed_neuropil_fact :
-        neuropil_correction_factor, valid_ROIs_neuropil = compute_neuropil_facor(data.rawFluo, data.neuropil)
+        nb_unvalid_rois = np.sum(~valid_roiIndices)
+        neuropil_correction_factor, valid_roiIndices = compute_neuropil_facor(data.rawFluo, data.neuropil, valid_roiIndices)
         if verbose :
             print('neuropil correction factor computed:', neuropil_correction_factor)
-            if np.sum(~valid_ROIs_neuropil)>0:
+            if np.sum(~valid_roiIndices) - nb_unvalid_rois > 0:
                 print('\n  ** %i ROIs were discarded with the strictly positive neuropil correction factor criterion (%.1f%%) ** \n'\
-                    % (np.sum(~valid_ROIs_neuropil),
-                        100*np.sum(~valid_ROIs_neuropil)/data.rawFluo.shape[0]))
+                    % (np.sum(~valid_roiIndices) - nb_unvalid_rois,
+                        100*(np.sum(~valid_roiIndices) - nb_unvalid_rois)/data.rawFluo.shape[0]))
             else:
                 print('\n  ** all ROIs passed the strictly positive neuropil correction factor criterion ** \n')
                 
@@ -244,46 +269,24 @@ def compute_dFoF(data,
 
     data.neuropil_correction_factor = neuropil_correction_factor
 
-    #######################################################################
-    
-    # Step 1) ->  performing neuropil correction 
+    # Step 3) ->  performing neuropil correction 
     correctedFluo = data.rawFluo-\
         neuropil_correction_factor*data.neuropil
         
     
-    # Step 2) -> compute the F0 term (~ sliding minimum/percentile)
+    # Step 4) -> compute the F0 term (~ sliding minimum/percentile)
     correctedFluo0 = compute_F0(data, correctedFluo,
                                 method=method_for_F0,
                                 percentile=percentile,
                                 sliding_window=sliding_window)
 
-    # Step 3) -> determine the valid ROIs
-    # ROIs with strictly positive baseline
-    valid_roiIndices = (np.min(correctedFluo0, axis=1)>1)
+    valid_roiIndices = valid_roiIndices & (np.min(correctedFluo0, axis=1)>1)
 
-    # ROIs above Inclusion Factor
-    if roi_to_neuropil_fluo_inclusion_factor_metric == 'mean':
-        valid_roiIndices = valid_roiIndices &\
-            ((np.mean(data.rawFluo, axis=1)>\
-                roi_to_neuropil_fluo_inclusion_factor*np.mean(data.neuropil, axis=1)))
-    elif roi_to_neuropil_fluo_inclusion_factor_metric == 'std' :
-        neuropil_filtered = gaussian_filter1d(data.neuropil, 10)
-        rawFluo_filtered = gaussian_filter1d(data.rawFluo, 10)
-        valid_roiIndices = valid_roiIndices &\
-            ((np.std(rawFluo_filtered, axis=1)>\
-                roi_to_neuropil_fluo_inclusion_factor*np.std(neuropil_filtered, axis=1)))
-    else:
-        raise ValueError('roi_to_neuropil_fluo_inclusion_factor must be either "mean" or "std"')
-
-    # Add strictly positive neuropil correction factor criterion
-    if with_computed_neuropil_fact :
-        valid_roiIndices = valid_roiIndices & valid_ROIs_neuropil
-
-    # Step 4) -> compute the delta F over F quantity: dFoF = (F-F0)/F0
+    # Step 5) -> compute the delta F over F quantity: dFoF = (F-F0)/F0
     data.dFoF = (correctedFluo[valid_roiIndices, :]-\
       correctedFluo0[valid_roiIndices, :])/correctedFluo0[valid_roiIndices, :]
 
-    # Step 5) -> Gaussian smoothing if required
+    # Step 6) -> Gaussian smoothing if required
     if smoothing is not None:
         data.dFoF = gaussian_filter1d(data.dFoF, smoothing, axis=1)
 
@@ -294,7 +297,7 @@ def compute_dFoF(data,
                   % (np.sum(~valid_roiIndices),
                       100*np.sum(~valid_roiIndices)/correctedFluo.shape[0]))
         else:
-            print('\n  ** all ROIs passed the positive F0 criterion ** \n')
+            print('\n  ** all ROIs passed were kept ** \n')
             
     # we update the previous quantities
     data.initialize_ROIs(\

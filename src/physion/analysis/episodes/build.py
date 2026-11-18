@@ -37,6 +37,7 @@ class EpisodeData:
                  quantities=['Photodiode-Signal'],
                  quantities_args=None,
                  prestim_duration=None, # to force the prestim window otherwise, half the value in between episodes
+                 postim_duration=None,
                  dt_sampling=1, # ms
                  interpolation='linear',
                  with_visual_stim=False,
@@ -62,6 +63,7 @@ class EpisodeData:
         self.set_quantities(full_data, quantities,
                             quantities_args=quantities_args,
                             prestim_duration=prestim_duration,
+                            postim_duration=postim_duration,    
                             dt_sampling=dt_sampling,
                             interpolation=interpolation,
                             tfull=tfull)
@@ -126,6 +128,7 @@ class EpisodeData:
     def set_quantities(self, full_data, quantities,
                        quantities_args=None,
                        prestim_duration=None,
+                       postim_duration=None,  
                        dt_sampling=1, # ms
                        interpolation='linear',
                        tfull=None):
@@ -170,11 +173,17 @@ class EpisodeData:
             prestim_duration = 1 # still 1s is a minimum
         ipre = int(prestim_duration/dt_sampling*1e3)
 
+        if (postim_duration is None) and ('interstim' in full_data.nwbfile.stimulus):
+            postim_duration = np.min(full_data.nwbfile.stimulus['interstim'].data[:,0]) - prestim_duration # half the stim duration
+        elif (postim_duration is None):
+            postim_duration = prestim_duration # still 1s is a minimum
+        ipost = int(postim_duration/dt_sampling*1e3)
+
         duration = full_data.nwbfile.stimulus['time_stop'].data[self.protocol_cond_in_full_data,0][0]-\
                 full_data.nwbfile.stimulus['time_start'].data[self.protocol_cond_in_full_data,0][0]
         idur = int(duration/dt_sampling/1e-3)
         # -> time array:
-        self.t = np.arange(-ipre+2, idur+ipre)*dt_sampling*1e-3
+        self.t = np.arange(-ipre+2, idur+ipost)*dt_sampling*1e-3
 
 
         #############################################################################
@@ -286,7 +295,7 @@ class EpisodeData:
             for quantity, tfull, valfull in zip(QUANTITIES, QUANTITY_TIMES, QUANTITY_VALUES):
 
                 # compute time and interpolate
-                ep_cond = (tfull>=(tstart-2.*prestim_duration)) & (tfull<(tstop+1.5*prestim_duration)) # higher range of interpolation to avoid boundary problems
+                ep_cond = (tfull>=(tstart-2.*prestim_duration)) & (tfull<(tstop+1.5*postim_duration)) # higher range of interpolation to avoid boundary problems
                 try:
                     if (len(valfull.shape)>1):
                         # multi-dimensional response, e.g. dFoF = (rois, time)

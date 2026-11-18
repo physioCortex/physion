@@ -1,0 +1,21 @@
+{
+  "Presentation": "Stimuli-Sequence",
+  "Stimulus": "grating",
+  "movie_refresh_freq":30.0,
+  "Screen": "A1-Small-Screen",
+  "units":"lin-deg",
+  "_______________________________________________________________________1":0,
+  "presentation-duration": 2,
+  "presentation-interstim-period": 0,
+  "N-repeat": 1,
+  "_______________________________________________________________________2":0,
+  "radius":15,
+  "contrast":0,
+  "_______________________________________________________________________3":0,
+  "angle-surround": 90,
+  "speed-surround": 0,
+  "contrast-surround": 1,
+  "phase-surround":0,
+  "spatial-freq-surround": 0.08,
+  "radius-surround": 200
+}
