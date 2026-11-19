@@ -12,6 +12,16 @@ except ModuleNotFoundError:
     print('"skimage" module not found')
 
 
+def list_NI_files(folder):
+    """
+    image files of the NI bank, sorted by the number in their name
+        (1.jpg, 2.jpg, ..., 10.png) and not alphabetically (1, 10, 2, ...)
+        -> "Image-ID" = n  corresponds to the file named "n+1"
+    """
+    files = [f for f in os.listdir(folder)\
+             if os.path.splitext(f)[1].lower() in ['.png', '.jpg', '.jpeg', '.tif', '.tiff']]
+    return sorted(files, key=lambda f: int(os.path.splitext(f)[0]))
+
 def load(image_path):
 
     img = io.imread(image_path)
