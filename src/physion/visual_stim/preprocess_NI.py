@@ -57,6 +57,60 @@ def img_after_hist_normalization(img, verbose=False):
     return new_img.reshape(img.shape)
 
 
+def hist_match_to_average(images, n_bins=256, verbose=False):
+    """
+    for NATURAL IMAGES:
+    histogram matching of each image to the average histogram of the set
+        (as "histMatch" of the SHINE toolbox, Willenbockel et al., 2010)
+
+    all images end up with (approximately) the same brightness distribution,
+        whose shape is the average one of the set (natural-looking),
+        instead of the uniform one of histogram equalization
+
+    images: dict {key: image} or list of images, values in [0,1]
+    returns the same structure with the matched images
+
+    each pixel is mapped through:   its quantile in its own image
+                       -> the brightness at that quantile of the average histogram
+    pixels with the same value keep the same value
+        (no arbitrary tie-breaking, so uniform regions stay uniform)
+    """
+    keys = list(images.keys()) if isinstance(images, dict) else range(len(images))
+
+    for k in keys:
+        if images[k].min() < 0 or images[k].max() > 1:
+            raise ValueError('hist_match_to_average expects values in [0,1], '
+                             'got [%.3f, %.3f] for image %s' %\
+                             (images[k].min(), images[k].max(), k))
+
+    # average histogram (as a probability distribution) of the set
+    bins = np.linspace(0, 1, n_bins+1)
+    hists = [np.histogram(images[k], bins=bins)[0]/images[k].size for k in keys]
+    target_cdf = np.concatenate([[0], np.cumsum(np.mean(hists, axis=0))])
+
+    if verbose:
+        target_hist = np.mean(hists, axis=0)
+        centers = .5*(bins[1:]+bins[:-1])
+        mean = np.sum(target_hist*centers)
+        print('Histogram matching of %i images to the average histogram' % len(keys),
+              '(mean=%.3f, std=%.3f)' % (mean,
+                np.sqrt(np.sum(target_hist*(centers-mean)**2))))
+
+    matched = {} if isinstance(images, dict) else [None]*len(images)
+    for k in keys:
+        flat = images[k].ravel()
+        # quantile of each pixel value in its own image (ties -> mid quantile)
+        values, inverse, counts = np.unique(flat,
+                                            return_inverse=True,
+                                            return_counts=True)
+        quantiles = (np.cumsum(counts)-counts/2.)/flat.size
+        # brightness at that quantile in the average histogram
+        new_values = np.interp(quantiles, target_cdf, bins)
+        matched[k] = new_values[inverse].reshape(images[k].shape)
+
+    return matched
+
+
 def adapt_to_screen_resolution(img, new_screen, verbose=False):
 
     if verbose:

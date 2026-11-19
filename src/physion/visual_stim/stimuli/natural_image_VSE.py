@@ -32,7 +32,9 @@ class stim(visual_stim):
         # initializing set of NI
         # (only the images used in the protocol)
         self.NIarray = get_NaturalImages_as_array(self.screen,
-                                        image_IDs=self.experiment['Image-ID'])
+                                        image_IDs=self.experiment['Image-ID'],
+                                        normalization=protocol.get('NI-normalization',
+                                                                   'equalization'))
 
         self.vse = vse.generate_sequence(seed=protocol['seed'],
                                 min_saccade_duration=protocol['min-saccade-duration'],
