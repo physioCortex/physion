@@ -182,7 +182,7 @@ if __name__=='__main__':
                      recordings['time'],
                      recordings['subject']):
             
-            data = Data(os.path.join(filename.replace('DataTable.xlsx', ''),
+            data = Data(os.path.join(filename.replace(os.path.basename(filename), ''),
                                      'NWBs', '%s-%s.nwb' % (day, time)),
                                      metadata_only=True)
             fns.append('%s-%s.nwb' % (day, time))
