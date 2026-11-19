@@ -21,7 +21,8 @@ params = {"Image-ID":1,
 NORMALIZATIONS = ['equalization', 'histogram-matching', 'none']
 
 def get_NaturalImages_as_array(screen, image_IDs=None,
-                               normalization='equalization'):
+                               normalization='equalization',
+                               upscaling='linear'):
     """
     returns a dictionary {Image-ID: normalized image}
 
@@ -33,6 +34,9 @@ def get_NaturalImages_as_array(screen, image_IDs=None,
         'histogram-matching' -> each image matched to the average histogram
                                     of the images loaded (i.e. of the protocol)
         'none'               -> images as loaded and resized
+
+    upscaling (set by the "NI-upscaling" key of the protocol):
+        'linear' (default) or 'cubic' (smoother edges, see adapt_to_screen_resolution)
     """
     if normalization not in NORMALIZATIONS:
         raise ValueError('NI-normalization "%s" not recognized, should be one of: %s' %\
@@ -55,7 +59,8 @@ def get_NaturalImages_as_array(screen, image_IDs=None,
             raise IndexError('Image-ID %i out of range: NI_bank has %i images (Image-ID 0 to %i)' %\
                              (ID, len(files), len(files)-1))
         img = load(os.path.join(NI_FOLDER, files[ID])).T
-        new_img = np.rot90(adapt_to_screen_resolution(img, screen), k=3)
+        new_img = np.rot90(adapt_to_screen_resolution(img, screen,
+                                                      interpolation=upscaling), k=3)
         if normalization=='equalization':
             NIarray[int(ID)] = img_after_hist_normalization(new_img)
         else:
@@ -80,7 +85,8 @@ class stim(visual_stim):
         self.NIarray = get_NaturalImages_as_array(self.screen,
                                         image_IDs=self.experiment['Image-ID'],
                                         normalization=protocol.get('NI-normalization',
-                                                                   'equalization'))
+                                                                   'equalization'),
+                                        upscaling=protocol.get('NI-upscaling', 'linear'))
 
     def get_image(self, index,
                   time_from_episode_start=0,

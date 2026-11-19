@@ -111,22 +111,45 @@ def hist_match_to_average(images, n_bins=256, verbose=False):
     return matched
 
 
-def adapt_to_screen_resolution(img, new_screen, verbose=False):
+UPSCALINGS = ['linear', 'cubic']
+
+def adapt_to_screen_resolution(img, new_screen,
+                               interpolation='linear',
+                               verbose=False):
+    """
+    resample the image to the screen resolution
+
+    interpolation:
+        'linear' (default) -> bilinear, as originally
+                    (the last row/column is extrapolated one pixel beyond the image)
+        'cubic'            -> bicubic spline: smoother edges when upscaling small images,
+                    the grid ends on the last pixel (no extrapolation)
+                    and values are clipped to the input range (spline overshoot)
+    """
+    if interpolation not in UPSCALINGS:
+        raise ValueError('interpolation "%s" not recognized, should be one of: %s' %\
+                         (interpolation, ', '.join(UPSCALINGS)))
 
     if verbose:
         print('Adapting image to chosen screen resolution [...]')
-    
+
     old_X = np.arange(img.shape[0])
     old_Y = np.arange(img.shape[1])
-    
-    new_X = np.linspace(0, img.shape[0], new_screen['resolution'][0])
-    new_Y = np.linspace(0, img.shape[1], new_screen['resolution'][1])
 
-    new_img = np.zeros(new_screen['resolution'])
-    spline_approx = RectBivariateSpline(old_X, old_Y, img, 
-                                        kx=1, ky=1)
-    
-    return spline_approx(new_X, new_Y)
+    if interpolation=='cubic':
+        new_X = np.linspace(0, img.shape[0]-1, new_screen['resolution'][0])
+        new_Y = np.linspace(0, img.shape[1]-1, new_screen['resolution'][1])
+        spline_approx = RectBivariateSpline(old_X, old_Y, img,
+                                            kx=3, ky=3)
+        return np.clip(spline_approx(new_X, new_Y), img.min(), img.max())
+
+    else:
+        # kept unchanged for reproducibility of previous stimuli
+        new_X = np.linspace(0, img.shape[0], new_screen['resolution'][0])
+        new_Y = np.linspace(0, img.shape[1], new_screen['resolution'][1])
+        spline_approx = RectBivariateSpline(old_X, old_Y, img,
+                                            kx=1, ky=1)
+        return spline_approx(new_X, new_Y)
 
     
 if __name__=='__main__':
