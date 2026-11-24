@@ -281,7 +281,8 @@ def convert(paths, session, subject,
     time = [int(t[:2]) for t in xml['StartTime'].split(':')]
     day = [int(d) for d in session[:10].split('_')]
 
-    nwb_filename = '%i_%.2d_%.2d-%i-%.2d-%.2d.nwb' % (*day, *time)
+    # session name YYYY_MM_DD-HH-MM-SS (zero-padded), as read by Post2p: NWBs/<session>.nwb
+    nwb_filename = '%i_%.2d_%.2d-%.2d-%.2d-%.2d.nwb' % (*day, *time)
 
     start_time = datetime.datetime(day[0], day[1], day[2], 
                                    time[0], time[1], time[2], 
