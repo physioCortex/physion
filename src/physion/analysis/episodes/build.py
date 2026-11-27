@@ -37,7 +37,7 @@ class EpisodeData:
                  quantities=['Photodiode-Signal'],
                  quantities_args=None,
                  prestim_duration=None, # to force the prestim window otherwise, half the value in between episodes
-                 postim_duration=None,
+                 postim_duration=None, # to force the poststim window otherwise, interstim minus prestim window
                  dt_sampling=1, # ms
                  interpolation='linear',
                  with_visual_stim=False,
@@ -168,15 +168,15 @@ class EpisodeData:
 
         # new sampling, a window arround stimulus presentation
         if (prestim_duration is None) and ('interstim' in full_data.nwbfile.stimulus):
-            prestim_duration = np.min(full_data.nwbfile.stimulus['interstim'].data[:,0])/2. # half the stim duration
+            prestim_duration = np.min(full_data.nwbfile.stimulus['interstim'].data[:,0])/2. # half the (min) interstim period
         if (prestim_duration is None) or (prestim_duration<1):
             prestim_duration = 1 # still 1s is a minimum
         ipre = int(prestim_duration/dt_sampling*1e3)
 
         if (postim_duration is None) and ('interstim' in full_data.nwbfile.stimulus):
-            postim_duration = np.min(full_data.nwbfile.stimulus['interstim'].data[:,0]) - prestim_duration # half the stim duration
+            postim_duration = np.min(full_data.nwbfile.stimulus['interstim'].data[:,0]) - prestim_duration # rest of the (min) interstim period after the prestim window
         elif (postim_duration is None):
-            postim_duration = prestim_duration # still 1s is a minimum
+            postim_duration = prestim_duration # no interstim info -> same window as prestim
         ipost = int(postim_duration/dt_sampling*1e3)
 
         duration = full_data.nwbfile.stimulus['time_stop'].data[self.protocol_cond_in_full_data,0][0]-\

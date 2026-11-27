@@ -1,9 +1,44 @@
 """
-use as python convert datafolder
+Convert spontaneous two-photon recordings (Bruker xml + abf rotary encoder
++ FaceIt + suite2p) to NWB.
+
+Usage:
+
+    python -m physion.utils.conversion.abf_to_nwb DataTable.xlsx \\
+        --raw-root /raw/two-photon \\
+        --processed-root /projects/<PRJ>/processed-data \\
+        [--dataset <Dataset>]
+
+DataTable.xlsx:
+
+  - sheet "Recordings", one row per session, columns:
+        session       (required) YYYY_MM_DD_HH-MM-SS
+        subject       (required) key into the "Subjects" sheet
+        dataset       (optional) raw dataset folder, defaults to --dataset
+        protocol      (required) spontaneous / visual
+                      (only "spontaneous" rows are converted here)
+        experimenter  (required)
+        include       (required) boolean, rows set to False are skipped
+        comment       (optional)
+
+  - sheet "Subjects", first column = subject, columns:
+        Lignée, Acronyme lignée, Marque, Sexe, D. naissance,
+        Chirurgie 1, D. chirurgie 1, Chirurgie 2, D. chirurgie 2,
+        Virus, Dilution virus, Génotype, Espèce, Souche
+
+Folder layout (built from the table, YYYY_MM_DD = session[:10]):
+
+  raw session       <raw_root>/<dataset>/<YYYY_MM_DD>/<session>/
+                        TSeries-*/ (with the Bruker .xml, exactly one)
+                        <session>_rotary.abf
+                        <session>_metadata.txt
+  processed session <processed_root>/preprocessing/<YYYY_MM_DD>/<session>/
+                        suite2p/
+                        FaceIt/
+  output            <processed_root>/NWBs/
 """
-import os, sys, pathlib
+import os, sys, pathlib, glob, argparse
 import numpy as np
-import pandas as pd
 import pandas as pd
 import pynwb
 import datetime
@@ -15,22 +50,96 @@ from physion.imaging.bruker.xml_parser import bruker_xml_parser
 from physion.imaging.suite2p.to_nwb import add_ophys_processing_from_suite2p
 from physion.utils.files import get_files_with_extension
 from physion.analysis.tools import resample_signal
-from physion.analysis.tools import resample_signal
+
+RECORDINGS_REQUIRED_COLUMNS = ['session', 'subject', 'protocol',
+                               'experimenter', 'include']
 
 def read_table(filename):
 
     dataset = pd.read_excel(filename,
                             sheet_name='Recordings')
-    
+
     subjects = pd.read_excel(filename,
                             sheet_name='Subjects', index_col=0)
-    
+
+    missing = [c for c in RECORDINGS_REQUIRED_COLUMNS
+               if c not in dataset.columns]
+    if missing:
+        raise ValueError('Sheet "Recordings" of "%s" is missing the column(s): %s'
+                         % (filename, ', '.join(missing)))
+
     return dataset, subjects
 
-def get_face_metrics(Tseries_folder):
+def is_empty(value):
+    return value is None or (isinstance(value, float) and np.isnan(value)) \
+            or (isinstance(value, str) and value.strip()=='')
 
-    fn_list = get_files_with_extension(os.path.join(Tseries_folder, 'FaceIt'), extension='.npz')
-    fn = list(filter(lambda item: "faceit.npz" in item, fn_list))[0]
+def to_bool(value):
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in ['true', 'yes', 'y', '1', 'x', 'oui']:
+            return True
+        if v in ['false', 'no', 'n', '0', '', 'non']:
+            return False
+        raise ValueError('Cannot interpret include="%s" as a boolean' % value)
+    if is_empty(value):
+        return False
+    return bool(value)
+
+def build_session_paths(session, dataset, raw_root, processed_root):
+    """
+    returns a dict with the raw / processed folders and files of a session,
+    raises FileNotFoundError if any required input is missing
+    """
+    day = session[:10]
+
+    raw_session = os.path.join(raw_root, dataset, day, session)
+    processed_session = os.path.join(processed_root, 'preprocessing',
+                                     day, session)
+
+    for folder, label in [(raw_session, 'raw session'),
+                          (processed_session, 'processed session')]:
+        if not os.path.isdir(folder):
+            raise FileNotFoundError('%s folder not found: "%s"' % (label, folder))
+
+    tseries = [f for f in glob.glob(os.path.join(raw_session, 'TSeries-*'))
+               if os.path.isdir(f)]
+    if len(tseries)!=1:
+        raise FileNotFoundError(\
+            'expected exactly one TSeries-* folder in "%s", found %i%s' % (\
+                raw_session, len(tseries),
+                (': '+', '.join(os.path.basename(t) for t in tseries)) if tseries else ''))
+    tseries_folder = tseries[0]
+
+    xml_files = get_files_with_extension(tseries_folder, extension='.xml')
+    if len(xml_files)==0:
+        raise FileNotFoundError('no Bruker .xml file in "%s"' % tseries_folder)
+
+    paths = {'raw_session': raw_session,
+             'processed_session': processed_session,
+             'tseries_folder': tseries_folder,
+             'xml_file': xml_files[0],
+             'abf_file': os.path.join(raw_session, '%s_rotary.abf' % session),
+             'metadata_file': os.path.join(raw_session, '%s_metadata.txt' % session),
+             'suite2p_folder': os.path.join(processed_session, 'suite2p'),
+             'faceit_folder': os.path.join(processed_session, 'FaceIt')}
+
+    for key in ['abf_file', 'metadata_file']:
+        if not os.path.isfile(paths[key]):
+            raise FileNotFoundError('required file not found: "%s"' % paths[key])
+    for key in ['suite2p_folder', 'faceit_folder']:
+        if not os.path.isdir(paths[key]):
+            raise FileNotFoundError('required folder not found: "%s"' % paths[key])
+
+    return paths
+
+def get_face_metrics(faceit_folder):
+
+    fn_list = get_files_with_extension(faceit_folder, extension='.npz')
+    fn_list = list(filter(lambda item: "faceit.npz" in item, fn_list))
+    if len(fn_list)==0:
+        raise FileNotFoundError('no "*faceit.npz" file in "%s"' % faceit_folder)
+    fn = fn_list[0]
     faceitOutput = np.load(fn, allow_pickle=True)
 
     output = {}
@@ -47,15 +156,14 @@ def get_face_metrics(Tseries_folder):
 
     return output
 
-def get_running_speed(Tseries_folder, 
+def get_running_speed(abf_file,
                       bin_conversion_th=1.5,
                       perimeter_cm=29,
                       cpr=1000,
                       new_freq=30,
                       position_smoothing=10e-3):
 
-    fn = get_files_with_extension(Tseries_folder, extension='.abf')[0]
-    abf = pyabf.ABF(fn)
+    abf = pyabf.ABF(abf_file)
 
     # Get acquisition frequency
     acq_freq = abf.sampleRate
@@ -147,30 +255,34 @@ def compute_position_from_binary_signals(A, B, forward='counterclockwise'):
 
     return np.cumsum(np.concatenate([[0], Delta_position]))
 
-def convert(session_folder, Tseries_folder, day, subject,
-            subject_info, genotype, virus, 
-            savepath):
+def format_virus(subject_info):
+    virus = subject_info.get('Virus')
+    dilution = subject_info.get('Dilution virus')
+    if is_empty(virus):
+        return None
+    if is_empty(dilution):
+        return str(virus)
+    return '%s (dilution %s)' % (virus, dilution)
+
+def convert(paths, session, subject,
+            subject_info, experimenter,
+            nwb_folder):
+
+    Tseries_folder = paths['tseries_folder']
 
     # load metadata:
-    fn = get_files_with_extension(session_folder, extension='.txt')
-    i = 0
-    while i < len(fn) and 'metadata' not in fn[i]: i += 1
-    if i < len(fn) and 'metadata' in fn[i]:
-        with open(fn[i], 'r') as f:
-            metadata = json.load(f)
-    else:
-        print('No metadata file found.')
-        metadata = {}
+    with open(paths['metadata_file'], 'r') as f:
+        metadata = json.load(f)
 
     metadata.update({'protocol': 'None'})
 
     # load Prairie file
-    fn = get_files_with_extension(Tseries_folder, extension='.xml')[0]
-    xml = bruker_xml_parser(fn)
+    xml = bruker_xml_parser(paths['xml_file'])
     time = [int(t[:2]) for t in xml['StartTime'].split(':')]
-    day = [int(d) for d in day.split('_')]
+    day = [int(d) for d in session[:10].split('_')]
 
-    nwb_filename = '%i_%.2d_%.2d-%i-%.2d-%.2d.nwb' % (*day, *time)
+    # session name YYYY_MM_DD-HH-MM-SS (zero-padded), as read by Post2p: NWBs/<session>.nwb
+    nwb_filename = '%i_%.2d_%.2d-%.2d-%.2d-%.2d.nwb' % (*day, *time)
 
     start_time = datetime.datetime(day[0], day[1], day[2], 
                                    time[0], time[1], time[2], 
@@ -190,7 +302,8 @@ def convert(session_folder, Tseries_folder, day, subject,
                                     age= f"P{(start_time.date() - date_of_birth.date()).days}D",
                                     subject_id=subject,
                                     sex=subject_info['Sexe'],
-                                    genotype=genotype,
+                                    genotype=None if is_empty(subject_info.get('Génotype')) \
+                                                else str(subject_info['Génotype']),
                                     date_of_birth=date_of_birth,
                                     species='mus musculus',
                                     strain=subject_info['Souche'])
@@ -200,14 +313,14 @@ def convert(session_folder, Tseries_folder, day, subject,
     #    ---------  building the pynwb NWBfile object   ----------
     # --------------------------------------------------------------
     nwbfile = pynwb.NWBFile(\
-                identifier=session_folder,
+                identifier=paths['raw_session'],
                 session_description=str(metadata),
                 experiment_description='imaging during spontaneous behavior',
-                experimenter='Adrianna Nozownik',
+                experimenter=experimenter,
                 lab='Bacci lab',
                 # protocol='spontaneous-activity',
                 institution='Paris Brain Institute',
-                virus=virus,
+                virus=format_virus(subject_info),
                 surgery='Viral-Injection+Headplate-Implantation',
                 session_start_time=start_time,
                 subject=subject,
@@ -222,7 +335,7 @@ def convert(session_folder, Tseries_folder, day, subject,
     # ####         Locomotion                   #######
     # #################################################
 
-    t_speed, speed, dt_start = get_running_speed(session_folder)
+    t_speed, speed, dt_start = get_running_speed(paths['abf_file'])
 
     running = pynwb.TimeSeries(name='Running-Speed',
                                data = np.reshape(speed, (len(speed),1)),
@@ -235,12 +348,9 @@ def convert(session_folder, Tseries_folder, day, subject,
     #### Pupil and Facemotion from FaceCamera #######
     #################################################
 
-    fn = get_files_with_extension(Tseries_folder, extension='.xml')[0]
-    xml = bruker_xml_parser(fn) # metadata
-
     t_imaging = xml['Green']['relativeTime'] + dt_start
 
-    faceMetrics = get_face_metrics(session_folder)
+    faceMetrics = get_face_metrics(paths['faceit_folder'])
     t_facedata = np.linspace(t_imaging[0], t_imaging[-1], len(faceMetrics['cx']))
 
     # Pupil
@@ -308,27 +418,20 @@ def convert(session_folder, Tseries_folder, day, subject,
     
     nwbfile.add_acquisition(image_series)
 
-    if os.path.isdir(os.path.join(Tseries_folder, 'suite2p')):
-        print('=> Adding the suite2p processing for "%s" [...]' % Tseries_folder)
-        add_ophys_processing_from_suite2p(os.path.join(Tseries_folder, 'suite2p'),
-                                          nwbfile, xml,
-                                          TwoP_trigger_delay=dt_start,
-                                          device=device,
-                                          optical_channel=optical_channel,
-                                          imaging_plane=imaging_plane,
-                                          image_series=image_series) 
-    else:
-        print('\n [!!]  no "suite2p" folder found in "%s"  [!!] ' % session_folder)
+    print('=> Adding the suite2p processing from "%s" [...]' % paths['suite2p_folder'])
+    add_ophys_processing_from_suite2p(paths['suite2p_folder'],
+                                      nwbfile, xml,
+                                      TwoP_trigger_delay=dt_start,
+                                      device=device,
+                                      optical_channel=optical_channel,
+                                      imaging_plane=imaging_plane,
+                                      image_series=image_series)
 
     #################################################
     ####         Writing NWB file             #######
     #################################################
 
-    """ filename = os.path.join(os.path.dirname(Tseries_folder), 
-                            '..', '..',
-                            'NWBs', nwb_filename) """
-    filename = os.path.join(savepath,
-                            'NWBs', nwb_filename)
+    filename = os.path.join(nwb_folder, nwb_filename)
     io = pynwb.NWBHDF5IO(filename,
                          mode='w', manager=manager)
 
@@ -340,36 +443,58 @@ def convert(session_folder, Tseries_folder, day, subject,
 
 if __name__=='__main__':
 
-    if '.xlsx' in sys.argv[-1]:
+    parser = argparse.ArgumentParser(\
+            description='Convert spontaneous two-photon recordings to NWB',
+            epilog=__doc__,
+            formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('datatable',
+                        help='DataTable.xlsx with "Recordings" and "Subjects" sheets')
+    parser.add_argument('--raw-root', required=True,
+                        help='root of the raw data, e.g. Y:\\raw\\two-photon')
+    parser.add_argument('--processed-root', required=True,
+                        help="the project's processed-data folder")
+    parser.add_argument('--dataset', default=None,
+                        help='dataset used for rows whose "dataset" cell is empty')
+    args = parser.parse_args()
 
-        dataset, subjects = read_table(sys.argv[-1])
-        savepath = os.path.dirname(sys.argv[-1])
+    dataset, subjects = read_table(args.datatable)
 
-        for f, subject, virus, genotype in zip(\
-                            dataset['filepath'],
-                            dataset['subject'],
-                            dataset['virus'],
-                            dataset['genotype']):
+    nwb_folder = os.path.join(args.processed_root, 'NWBs')
+    os.makedirs(nwb_folder, exist_ok=True)
 
-            day, tseries = f.split('\\')[-2:]
-            if 'spontaneous' in day :
-                day = f.split('\\')[-3]
-            
-            sS = f #bypass process folder
-            #sS = os.path.join(os.path.dirname(sys.argv[-1]), 'processed', day, tseries) #requires process folder
-            fn = get_files_with_extension(sS, extension='.xml', recursive=True)[0]
-            tS = os.path.dirname(fn) 
+    for irow, row in dataset.iterrows():
 
-            subject_info = subjects.loc[subject].to_dict()
+        session = str(row['session']).strip()
+        label = 'row %i (session "%s")' % (irow+2, session) # +2: excel header + 1-based
 
-            print("\n" + tS)
-            convert(sS, tS, day, str(subject), subject_info, genotype, virus, savepath)
+        if not to_bool(row['include']):
+            print('\n-- skipping %s: include is False' % label)
+            continue
 
-    else:
+        protocol = '' if is_empty(row['protocol']) else str(row['protocol']).strip()
+        if protocol.lower()!='spontaneous':
+            print('\n-- skipping %s: protocol is "%s", not "spontaneous"' % (label, protocol))
+            continue
 
-        print("""
+        row_dataset = row['dataset'] if 'dataset' in dataset.columns else None
+        if is_empty(row_dataset):
+            row_dataset = args.dataset
+        if is_empty(row_dataset):
+            raise ValueError('%s: empty "dataset" cell and no --dataset given' % label)
 
-        [!!] need to provide a DataTable.xlsx file as argument [!!]
+        if is_empty(row['experimenter']):
+            raise ValueError('%s: empty "experimenter" cell' % label)
 
-              """)
+        subject = row['subject']
+        if subject not in subjects.index:
+            raise KeyError('%s: subject "%s" not found in the "Subjects" sheet'
+                           % (label, subject))
+        subject_info = subjects.loc[subject].to_dict()
+
+        paths = build_session_paths(session, str(row_dataset).strip(),
+                                    args.raw_root, args.processed_root)
+
+        print("\n" + paths['raw_session'])
+        convert(paths, session, str(subject), subject_info,
+                str(row['experimenter']).strip(), nwb_folder)
 

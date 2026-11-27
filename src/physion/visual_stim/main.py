@@ -261,6 +261,10 @@ class visual_stim:
                     VECS.append(np.linspace(protocol[key+'-1'],
                                             protocol[key+'-2'],
                                             protocol['N-'+key]))
+                elif (key in protocol) and \
+                        isinstance(protocol[key], (list, tuple)):
+                    # EXPLICIT LIST of values, e.g. "contrast": [0.1, 0.2, 1.0]
+                    VECS.append(np.array(protocol[key], dtype=float))
                 elif key in protocol:
                     # parameter in the protocol:
                     VECS.append(np.array([protocol[key]])) 
@@ -315,7 +319,7 @@ class visual_stim:
 
                 self.experiment['index'].append(i) # shuffled
                 self.experiment['bg-color'].append(self.blank_color)
-                self.experiment['repeat'].append(repeats[i])
+                self.experiment['repeat'].append(r) # shuffled, aligned with index
 
                 if n==0:
                     self.experiment['time_start'].append(\

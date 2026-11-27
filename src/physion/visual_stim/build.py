@@ -120,6 +120,47 @@ class MonitoringSquare:
         
 
 
+#######################################################
+##  ----  saving stimulus images (--save-images)  ---- ##
+#######################################################
+
+# experiment keys that are not stimulus parameters
+NON_STIM_KEYS = ['index', 'repeat', 'protocol_id', 'bg-color',
+                 'time_start', 'time_stop', 'time_duration',
+                 'interstim', 'interstim-screen']
+
+def get_varied_keys(Stim):
+    """ stimulus parameters that vary across episodes """
+    keys = []
+    for k in Stim.experiment:
+        if k in NON_STIM_KEYS:
+            continue
+        vals = [v for v in Stim.experiment[k] if v is not None]
+        try:
+            if len(np.unique(np.array(vals, dtype=float)))>1:
+                keys.append(k)
+        except (TypeError, ValueError):
+            pass # non-numeric parameter
+    return keys
+
+def stim_key(Stim, episode):
+    """ identifies a distinct stimulus (repeats share the same key) """
+    return (int(Stim.experiment['protocol_id'][episode]),
+            int(Stim.experiment['index'][episode]))
+
+def stim_image_name(Stim, episode, keys):
+    """ e.g. "stim-006_Image-ID-6_contrast-0.3" """
+    pid, index = stim_key(Stim, episode)
+    name = 'stim-%03d' % index
+    if Stim.protocol['Presentation']=='multiprotocol':
+        name = 'protocol-%i_' % (pid+1) + name
+    for k in keys:
+        v = Stim.experiment[k][episode]
+        if v is not None:
+            name += '_%s-%g' % (k, float(v))
+    return name
+
+
 if __name__=='__main__':
 
     import argparse, os, pathlib, shutil, json
@@ -131,7 +172,12 @@ if __name__=='__main__':
     parser.add_argument("--mp4", 
                         help="force to mp4 instead of wmv", 
                         action="store_true")
-    parser.add_argument('-v', "--verbose", 
+    parser.add_argument('-v', "--verbose",
+                        action="store_true")
+    parser.add_argument("--save-images",
+                        help="""save the first frame of each distinct stimulus
+                        as a png (exactly as written in the movie)
+                        in the "stim-images" subfolder""",
                         action="store_true")
     args = parser.parse_args()
 
@@ -216,6 +262,13 @@ if __name__=='__main__':
             index = 0
             tstart, tstop = update(Stim, index)
 
+            # prepare the saving of stimulus images
+            if args.save_images:
+                images_folder = os.path.join(protocol_folder, 'stim-images')
+                pathlib.Path(images_folder).mkdir(parents=True, exist_ok=True)
+                img_keys = get_varied_keys(Stim)
+                saved_stims = set()
+
             # LOOP over time to build the movie
             while t<tend:
 
@@ -238,8 +291,20 @@ if __name__=='__main__':
                 for s, o in enumerate(out):
                     dataS = Stim.restrict_to_screen(data, 
                                                     screen_id=s+1)
-                    o.write(np.array(255*np.rot90(dataS, k=1),
-                                    dtype='uint8'))
+                    frame = np.array(255*np.rot90(dataS, k=1),
+                                     dtype='uint8')
+                    o.write(frame)
+
+                    if args.save_images and (t>=tstart) and (t<tstop) and\
+                            (stim_key(Stim, index) not in saved_stims):
+                        name = stim_image_name(Stim, index, img_keys)
+                        if len(out)>1:
+                            name += '_screen-%i' % (s+1)
+                        cv.imwrite(os.path.join(images_folder, name+'.png'),
+                                   frame)
+
+                if args.save_images and (t>=tstart) and (t<tstop):
+                    saved_stims.add(stim_key(Stim, index))
 
                 t+= 1./Stim.movie_refresh_freq
 

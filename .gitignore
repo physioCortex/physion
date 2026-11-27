@@ -131,3 +131,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# visual stimulation movies built by physion.visual_stim.build
+src/physion/acquisition/protocols/movies/
